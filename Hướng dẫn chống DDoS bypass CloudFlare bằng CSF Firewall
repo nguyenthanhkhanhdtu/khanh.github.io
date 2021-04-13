@@ -1,0 +1,51 @@
+Cấu hình NGINX ghi log IP thật của User khi nằm sau CloudFlare
+Cloudflare là 1 Reverse Proxy hoạt động ở Layer 7 và CloudFlare thay mặt client để kết nối đến backend server lấy data. Do đó:
+
+Phía backend, source IP (giá trị của biến $remote_addr trong NGINX) là IP của CloudFlare.
+IP thực của người dùng (Client IP) được CloudFlare chèn vào header HTTP “X-Forwarded-For” hoặc “CF-Connecting-IP“.
+Chúng ta sẽ cấu hình NGINX sử dụng module http_realip để thay thế giá trị của header “CF-Connecting-IP” vào giá trị của biến $remote_addr. Qua đó, giúp các module hoạt động dựa giá trị của biến $remote_addr (ví dụ module log, rate limit) hoạt động dựa trên giá trị IP thực của người dùng.
+Để NGINX nhận diện IP thực của người dùng, thêm danh sách ipv4 và ipv6 của CloudFlare vào phần set_real_ip_from. Tạo file /etc/nginx/conf/cloudflare.conf với nội dung như sau:
+  set_real_ip_from 103.21.244.0/22;
+  set_real_ip_from 103.22.200.0/22;
+  set_real_ip_from 103.31.4.0/22;
+  set_real_ip_from 104.16.0.0/12;
+  set_real_ip_from 108.162.192.0/18;
+  set_real_ip_from 131.0.72.0/22;
+  set_real_ip_from 141.101.64.0/18;
+  set_real_ip_from 162.158.0.0/15;
+  set_real_ip_from 172.64.0.0/13;
+  set_real_ip_from 173.245.48.0/20;
+  set_real_ip_from 188.114.96.0/20;
+  set_real_ip_from 190.93.240.0/20;
+  set_real_ip_from 197.234.240.0/22;
+  set_real_ip_from 198.41.128.0/17;
+  set_real_ip_from 2400:cb00::/32;
+  set_real_ip_from 2606:4700::/32;
+  set_real_ip_from 2803:f800::/32;
+  set_real_ip_from 2405:b500::/32;
+  set_real_ip_from 2405:8100::/32;
+  set_real_ip_from 2c0f:f248::/32;
+  set_real_ip_from 2a06:98c0::/29;
+  real_ip_header CF-Connecting-IP;
+
+include file “cloudflare.conf” vào nginx.conf ở context http:
+
+http {
+  ...
+    include "/etc/nginx/conf/cloudflare.conf";
+  ...
+  }
+
+Kiểm tra lại config NGINX:
+  nginx -t
+Restart nginx
+  systemctl restart nginx
+Log mặc định của NGINX sử dụng format combined, được định nghĩa như sau: 
+  log_format combined '$remote_addr - $remote_user [$time_local] '
+                      '"$request" $status $body_bytes_sent '
+                      '"$http_referer" "$http_user_agent"';
+Format này sử biến $remote_addr làm IP của client. Sau khi config sử dụng module Real IP, hãy tiến hành kiểm tra access log xem đã ghi log được IP thật của người dùng hay chưa:
+  112.197.118.134 - - [21/Mar/2021:13:17:57 +0700] "GET / HTTP/1.1" 200 10179 "https://www.google.com/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:86.0) Gecko/20100101 Firefox/86.0"
+Whois IP để xem IP trên thuộc nhà mạng nào, nếu không phải của CloudFlare là thành công:
+NGINX đã nhận biết được IP thực của người dùng thay vì IP của CloudFlare. Các module khác như allow, deny IP, rate limiting đã có thể sử dụng.
+
